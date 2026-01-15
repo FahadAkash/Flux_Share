@@ -5,14 +5,14 @@
 
 import ja from "../locales/ja.json";
 import en from "../locales/en.json";
-import zh from "../locales/zh.json";
+import bn from "../locales/bn.json";
 
-export type Locale = "ja" | "en" | "zh";
+export type Locale = "ja" | "en" | "bn";
 export type Translations = typeof ja;
 
-const locales: Record<Locale, Translations> = { ja, en, zh };
+const locales: Record<Locale, Translations> = { ja, en, bn };
 
-export const supportedLocales: Locale[] = ["ja", "en", "zh"];
+export const supportedLocales: Locale[] = ["ja", "en", "bn"];
 export const defaultLocale: Locale = "en";
 
 /**
@@ -39,7 +39,7 @@ export function detectLocale(acceptLanguage: string | null | undefined): Locale 
   for (const { code } of languages) {
     const primary = code.split("-")[0];
     if (primary === "ja") return "ja";
-    if (primary === "zh") return "zh";
+    if (primary === "bn") return "bn";
     if (primary === "en") return "en";
   }
 
