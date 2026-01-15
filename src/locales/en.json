@@ -40,6 +40,7 @@
     "dropTitle": "Drop file here",
     "dropOr": "or",
     "select": "Select file",
+    "selectedCount": "{count} files selected ({size})",
     "send": "Send",
     "sendHintNoFile": "Please select a file",
     "sendHintNoPeer": "Waiting for recipient to connect",

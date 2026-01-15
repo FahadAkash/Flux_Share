@@ -40,6 +40,7 @@
     "dropTitle": "ここにファイルをドロップ",
     "dropOr": "または",
     "select": "ファイルを選択",
+    "selectedCount": "{count} 個のファイルを選択中 ({size})",
     "send": "送信",
     "sendHintNoFile": "ファイルを選択してください",
     "sendHintNoPeer": "相手の接続を待っています",

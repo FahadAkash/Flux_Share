@@ -312,6 +312,12 @@ h1 {
 .roomGrid {
   display: grid;
   grid-template-columns: 280px 1fr;
+  min-width: 0;
+}
+
+.roomMain {
+  padding: 2rem;
+  min-width: 0; /* Crucial for grid item to not overflow */
 }
 
 .roomSide {
@@ -342,6 +348,7 @@ h1 {
 #fileInfo, #downloadMeta {
   word-break: break-all;
   max-width: 100%;
+  display: block;
 }
 
 .sideCard {
@@ -431,6 +438,7 @@ h1 {
 .stepMain {
   font-size: 1.5rem;
   font-weight: 700;
+  word-break: break-word;
 }
 
 /* Toast */
@@ -483,4 +491,60 @@ h1 {
   border-top: var(--border-width) solid var(--black);
   text-align: center;
   background: #fafafa;
+}
+
+/* File List & Items */
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  max-height: 250px;
+  overflow-y: auto;
+  border: var(--border-width) solid var(--black);
+  padding: 0.75rem;
+  background: #f0f0f0;
+}
+
+.fileItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--black);
+  background: var(--white);
+  gap: 1rem;
+}
+
+.fileItem.active {
+  background: #fff8dc;
+  border-left: 10px solid var(--black);
+}
+
+.fileItem.done {
+  border-color: #ccc;
+}
+
+.fileItem .name {
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileItem .size {
+  font-size: 0.7rem;
+  color: var(--gray);
+}
+
+.fileItem.done .name::after {
+  content: " ✓";
+  color: #00aa00;
+}
+
+.fileItem .btn.small {
+  padding: 0.4rem 0.8rem;
+  min-width: auto;
+  font-size: 0.7rem;
+  box-shadow: 3px 3px 0px var(--black);
 }

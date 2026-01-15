@@ -37,7 +37,9 @@ type IncomingMeta = {
 
 type DoneMessage = { type: "done" };
 
-type DataMessage = IncomingMeta | DoneMessage;
+type BatchMeta = { type: "batch"; totalFiles: number; totalSize: number };
+
+type DataMessage = IncomingMeta | DoneMessage | BatchMeta;
 
 type OutgoingMeta = IncomingMeta;
 
@@ -90,10 +92,11 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   const [status, setStatus] = useState(t.status.initializing);
   const [role, setRole] = useState<RoomRole>(null);
   const [peers, setPeers] = useState(0);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState(-1);
   const [sendProgress, setSendProgress] = useState({ sent: 0, total: 0 });
   const [recvProgress, setRecvProgress] = useState({ got: 0, total: 0 });
-  const [download, setDownload] = useState<DownloadInfo | null>(null);
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([]);
   const [dropHover, setDropHover] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [qrCode, setQrCode] = useState<string>("");
@@ -106,7 +109,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
 
   const roleRef = useRef<RoomRole>(role);
   const peersRef = useRef(peers);
-  const selectedFileRef = useRef<File | null>(null);
+  const selectedFilesRef = useRef<File[]>([]);
   const sendIntentRef = useRef(false);
   const wsRef = useRef<AnyWebSocket | null>(null);
   const cryptoKeyRef = useRef<RoomCryptoKey>(null);
@@ -140,8 +143,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   }, [peers]);
 
   useEffect(() => {
-    selectedFileRef.current = selectedFile;
-  }, [selectedFile]);
+    selectedFilesRef.current = selectedFiles;
+  }, [selectedFiles]);
 
   const resetPeerSends = useCallback(() => {
     for (const peer of offererPeersRef.current.values()) {
@@ -184,27 +187,25 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   const handleDrop = useCallback((ev: DragEvent) => {
     ev.preventDefault();
     setDropHover(false);
-    const f = ev.dataTransfer?.files?.[0];
-    if (f) {
+    const files = Array.from(ev.dataTransfer?.files || []);
+    if (files.length > 0) {
       sendIntentRef.current = false;
       resetPeerSends();
-      setSelectedFile(f);
-      // Let sender also "download" their picked file
-      const url = URL.createObjectURL(f);
-      setDownload({ url, name: f.name, size: f.size });
+      setSelectedFiles(files);
+      setDownloads([]);
+      setCurrentFileIndex(-1);
     }
   }, [resetPeerSends]);
 
   const handleFileInput = useCallback((ev: Event) => {
     const input = ev.currentTarget as HTMLInputElement;
-    const f = input.files?.[0];
-    if (f) {
+    const files = Array.from(input.files || []);
+    if (files.length > 0) {
       sendIntentRef.current = false;
       resetPeerSends();
-      setSelectedFile(f);
-      // Let sender also "download" their picked file
-      const url = URL.createObjectURL(f);
-      setDownload({ url, name: f.name, size: f.size });
+      setSelectedFiles(files);
+      setDownloads([]);
+      setCurrentFileIndex(-1);
     }
   }, [resetPeerSends]);
 
@@ -213,74 +214,71 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     if (!meta) return;
     setStatus(t.status.generatingFile);
 
-    if (downloadUrlRef.current) {
-      URL.revokeObjectURL(downloadUrlRef.current);
-    }
-
     const blob = new Blob(recvChunksRef.current, { type: meta.mime });
     const url = URL.createObjectURL(blob);
-    downloadUrlRef.current = url;
 
-    setDownload({ url, name: meta.name, size: meta.size });
+    setDownloads(prev => [...prev, { url, name: meta.name, size: meta.size }]);
     setStatus(t.status.receiveComplete);
   }, []);
 
-  const sendFileToPeer = useCallback(async (peer: OffererPeer, file: File) => {
+  const sendFilesToPeer = useCallback(async (peer: OffererPeer, files: File[]) => {
     const dc = peer.dc;
     if (!dc) return;
 
-    const encrypted = !!cryptoKeyRef.current;
-    const meta: OutgoingMeta = {
-      type: "meta",
-      name: file.name,
-      size: file.size,
-      mime: file.type || "application/octet-stream",
-      encrypted,
-    };
-    log("[send] starting:", meta.name, "size:", meta.size, "peer:", peer.peerId);
-    dc.send(JSON.stringify(meta));
-
+    const totalBatchSize = files.reduce((acc, f) => acc + f.size, 0);
     setStatus(t.status.sending);
-    setSendProgress({ sent: 0, total: file.size });
+    setSendProgress({ sent: 0, total: totalBatchSize });
+    let batchSent = 0;
 
-    let sent = 0;
+    // Send batch header
+    dc.send(JSON.stringify({ type: "batch", totalFiles: files.length, totalSize: totalBatchSize } satisfies BatchMeta));
 
-    dc.bufferedAmountLowThreshold = 4 * 1024 * 1024;
-    const waitDrain = () =>
-      new Promise<void>((resolve) => {
-        if (dc.bufferedAmount <= dc.bufferedAmountLowThreshold) return resolve();
-        dc.onbufferedamountlow = () => {
-          dc.onbufferedamountlow = null;
-          resolve();
-        };
-      });
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setCurrentFileIndex(i);
+      const encrypted = !!cryptoKeyRef.current;
+      const meta: OutgoingMeta = {
+        type: "meta",
+        name: file.name,
+        size: file.size,
+        mime: file.type || "application/octet-stream",
+        encrypted,
+      };
+      
+      log("[send] starting file", i + 1, "/", files.length, ":", meta.name);
+      dc.send(JSON.stringify(meta));
 
-    const sendChunk = async (value: Uint8Array) => {
-      const chunk = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-      let payload: ArrayBuffer = chunk;
-      if (encrypted) payload = await encryptChunk(chunk, cryptoKeyRef.current);
-      dc.send(payload);
-      sent += value.byteLength;
-      setSendProgress({ sent, total: file.size });
-      if (dc.bufferedAmount > 8 * 1024 * 1024) await waitDrain();
-    };
+      const waitDrain = () =>
+        new Promise<void>((resolve) => {
+          if (dc.bufferedAmount <= dc.bufferedAmountLowThreshold) return resolve();
+          dc.onbufferedamountlow = () => {
+            dc.onbufferedamountlow = null;
+            resolve();
+          };
+        });
 
-    const chunkSize = 16 * 1024;
-    let offset = 0;
-    while (offset < file.size) {
-      const slice = file.slice(offset, offset + chunkSize);
-      const buf = await slice.arrayBuffer();
-      const value = new Uint8Array(buf);
-      if (value.byteLength === 0) break;
-      await sendChunk(value);
-      offset += value.byteLength;
+      const chunkSize = 64 * 1024; // Robust 64KB chunk
+      let offset = 0;
+      while (offset < file.size) {
+        const slice = file.slice(offset, offset + chunkSize);
+        const buf = await slice.arrayBuffer();
+        let payload: ArrayBuffer = buf;
+        if (encrypted) payload = await encryptChunk(buf, cryptoKeyRef.current);
+        
+        dc.send(payload);
+        offset += buf.byteLength;
+        batchSent += buf.byteLength;
+        
+        setSendProgress({ sent: batchSent, total: totalBatchSize });
+        if (dc.bufferedAmount > 4 * 1024 * 1024) await waitDrain();
+      }
+
+      dc.send(JSON.stringify({ type: "done" } satisfies DoneMessage));
+      log("[send] file completed:", meta.name);
     }
 
-    dc.send(JSON.stringify({ type: "done" } satisfies DoneMessage));
-    log("[send] completed, peer:", peer.peerId);
     setStatus(t.status.sendComplete);
     peer.sent = true;
-
     if (wsRef.current) {
       sendWS(wsRef.current, { type: "transfer-done", peerId: peer.peerId });
     }
@@ -289,16 +287,16 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   const trySendPeer = useCallback(async (peer: OffererPeer, reason: string) => {
     if (!sendIntentRef.current) return;
     if (peer.sending || peer.sent) return;
-    const file = selectedFileRef.current;
-    if (!file) return;
+    const files = selectedFilesRef.current;
+    if (files.length === 0) return;
     const dc = peer.dc;
     if (!dc || dc.readyState !== "open") return;
 
-    log("[send] triggered:", reason, "peer:", peer.peerId);
+    log("[send] triggered:", reason, "peer:", peer.peerId, "batch size:", files.length);
     peer.sending = true;
-    await sendFileToPeer(peer, file);
+    await sendFilesToPeer(peer, files);
     peer.sending = false;
-  }, [sendFileToPeer]);
+  }, [sendFilesToPeer]);
 
   const trySendAll = useCallback((reason: string) => {
     for (const peer of offererPeersRef.current.values()) {
@@ -307,10 +305,10 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   }, [trySendPeer]);
 
   const handleSend = useCallback(async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
     sendIntentRef.current = true;
     trySendAll("manual");
-  }, [selectedFile, trySendAll]);
+  }, [selectedFiles, trySendAll]);
 
   useEffect(() => {
     const boot = async () => {
@@ -441,13 +439,18 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
             const m = safeJson(ev.data) as DataMessage | null;
             if (!m) return;
 
+            if (m.type === "batch") {
+              log("[recv] batch started:", m.totalFiles, "files, total size:", m.totalSize);
+              setRecvProgress({ got: 0, total: m.totalSize });
+              return;
+            }
+
             if (m.type === "meta") {
               log("[recv] starting:", m.name, "size:", m.size);
               incomingMetaRef.current = m;
               recvChunksRef.current = [];
-              recvBytesRef.current = 0;
-              setDownload(null);
-              setRecvProgress({ got: 0, total: m.size });
+              // We don't reset recvProgress.got here to keep aggregate progress
+              setRecvProgress(prev => ({ ...prev, total: prev.total || m.size }));
 
               if (m.encrypted && !cryptoKeyRef.current) {
                 setStatus(t.status.missingKey);
@@ -471,8 +474,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
             plain = await decryptChunk(ab, cryptoKeyRef.current);
           }
           recvChunksRef.current.push(new Uint8Array(plain));
-          recvBytesRef.current += plain.byteLength;
-          setRecvProgress({ got: recvBytesRef.current, total: incomingMetaRef.current.size });
+          const chunkLen = plain.byteLength;
+          setRecvProgress(prev => ({ got: prev.got + chunkLen, total: prev.total }));
         };
       };
 
@@ -657,11 +660,13 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       wsRef.current?.close();
       receiverDcRef.current?.close();
       receiverPcRef.current?.close();
-      for (const peer of offererPeersRef.current.values()) {
-        peer.dc?.close();
-        peer.pc.close();
+      if (offererPeersRef.current) {
+        for (const peer of offererPeersRef.current.values()) {
+          peer.dc?.close();
+          peer.pc.close();
+        }
+        offererPeersRef.current.clear();
       }
-      offererPeersRef.current.clear();
       if (downloadUrlRef.current) {
         URL.revokeObjectURL(downloadUrlRef.current);
         downloadUrlRef.current = null;
@@ -695,25 +700,27 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     [recvProgress]
   );
 
-  const selectedFileLabel = useMemo(() => {
-    if (!selectedFile) return "";
-    return `${selectedFile.name} (${formatBytes(selectedFile.size)})`;
-  }, [selectedFile]);
+  const selectedFilesLabel = useMemo(() => {
+    if (selectedFiles.length === 0) return "";
+    if (selectedFiles.length === 1) return `${selectedFiles[0].name} (${formatBytes(selectedFiles[0].size)})`;
+    const totalSize = selectedFiles.reduce((acc, f) => acc + f.size, 0);
+    return t.room.selectedCount.replace("{count}", String(selectedFiles.length)).replace("{size}", formatBytes(totalSize));
+  }, [selectedFiles]);
 
   const maxConcurrentLabel = useMemo(
     () => t.room.maxConcurrentLimit.replace("{max}", String(maxConcurrent)),
     [maxConcurrent]
   );
 
-  const canSend = role === "offerer" && !!selectedFile;
+  const canSend = role === "offerer" && selectedFiles.length > 0;
   const showSender = role === "offerer";
   const showReceiver = role === "answerer";
 
   const sendHint = useMemo(() => {
-    if (!selectedFile) return t.room.sendHintNoFile;
+    if (selectedFiles.length === 0) return t.room.sendHintNoFile;
     if (peers === 0) return t.room.sendHintNoPeer;
     return t.room.sendHintReady;
-  }, [selectedFile, peers]);
+  }, [selectedFiles, peers]);
 
   const showSendProgress = sendProgress.total > 0;
 
@@ -742,7 +749,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       } else if (sendProgress.total > 0) {
         currentStep = 3;
         state = { step: 3, main: t.guide.senderSending, sub: t.guide.senderSendingSub, waiting: false, complete: false };
-      } else if (peers > 1 && selectedFile) {
+      } else if (peers > 1 && selectedFiles.length > 0) {
         // File selected and peer connected - ready to send
         currentStep = 3;
         state = { step: 3, main: t.guide.senderReadyToSend, sub: t.guide.senderReadyToSendSub, waiting: false, complete: false };
@@ -767,21 +774,21 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     if (role === "answerer") {
       // Receiver steps: 1=connecting, 2=wait file, 3=receiving, 4=complete
       let currentStep = 2;
-      if (download) {
+      if (downloads.length > 0) {
         currentStep = 4;
       } else if (recvProgress.total > 0) {
         currentStep = 3;
       }
       // Never go back
-      if (currentStep > maxStepRef.current) {
+      if (currentStep > (maxStepRef.current ?? 1)) {
         maxStepRef.current = currentStep;
       }
-      return receiverSteps[maxStepRef.current];
+      return receiverSteps[maxStepRef.current ?? 2];
     }
 
     // Initial connecting state (before role is assigned)
     return receiverSteps[1];
-  }, [role, peers, sendProgress, recvProgress, download, selectedFile]);
+  }, [role, peers, sendProgress, recvProgress, downloads, selectedFiles]);
 
   const stepLabel = t.guide.stepLabel
     .replace("{current}", String(guideState.step))
@@ -845,15 +852,26 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
                 <div class="muted small">{t.room.dropOr}</div>
                 <label class="btn">
                   {t.room.select}
-                  <input id="fileInput" type="file" hidden onChange={handleFileInput} />
+                  <input id="fileInput" type="file" hidden multiple onChange={handleFileInput} />
                 </label>
               </div>
+
+              {selectedFiles.length > 0 && (
+                <div class="fileList">
+                  {selectedFiles.map((f, i) => (
+                    <div key={i} class={`fileItem${i === currentFileIndex ? " active" : ""}${i < currentFileIndex ? " done" : ""}`}>
+                      <span class="name">{f.name}</span>
+                      <span class="size">{formatBytes(f.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div class="row gap wrap">
                 <button id="sendBtn" class="btn primary" disabled={!canSend} onClick={handleSend} title={sendHint}>
                   {t.room.send}
                 </button>
-                <div class="muted small" id="fileInfo">{selectedFileLabel || sendHint}</div>
+                <div class="muted small" id="fileInfo">{selectedFilesLabel || sendHint}</div>
               </div>
 
               {showSendProgress && (
@@ -870,8 +888,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
               )}
             </div>
 
-            <div id="receiverPane" class={`pane${showReceiver || download ? "" : " hidden"}`}>
-              {!recvProgress.total && !download && (
+            <div id="receiverPane" class={`pane${showReceiver || downloads.length > 0 ? "" : " hidden"}`}>
+              {!recvProgress.total && downloads.length === 0 && (
                 <div class="muted">{t.room.waiting}</div>
               )}
 
@@ -888,17 +906,17 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
                 </div>
               )}
 
-              <div id="downloadArea" class={download ? "" : "hidden"} style={{ marginTop: '2rem' }}>
-                <a
-                  id="downloadLink"
-                  class="btn primary"
-                  href={download?.url ?? "#"}
-                  download={download?.name}
-                >
-                  {t.room.download}
-                </a>
-                <div id="downloadMeta" class="muted small" style={{ marginTop: '0.5rem' }}>
-                  {download ? `${download.name} (${formatBytes(download.size)})` : ""}
+              <div id="downloadArea" class={downloads.length > 0 ? "" : "hidden"} style={{ marginTop: '2rem' }}>
+                <div class="fileList">
+                  {downloads.map((d, i) => (
+                    <div key={i} class="fileItem done">
+                      <div class="info">
+                        <span class="name">{d.name}</span>
+                        <span class="size">{formatBytes(d.size)}</span>
+                      </div>
+                      <a class="btn small" href={d.url} download={d.name}>{t.room.download}</a>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
