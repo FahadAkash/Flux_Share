@@ -21,9 +21,10 @@
     "receiveTitle": "Join to receive",
     "codePlaceholder": "Enter code (e.g. ABCD...)",
     "join": "Join",
-    "encryptHint": "With encryption ON, the key is included in the link.",
+    "encryptHint": "Privacy is end-to-end encrypted.",
     "footer": "P2P only. Connection may fail depending on network conditions",
-    "madeBy": "Made by Fahad Akash"
+    "madeBy": "Made by Fahad Akash",
+    "useAlt": "Use Alternative Server (Pairlane)"
   },
   "room": {
     "eyebrow": "ROOM—SESSION",

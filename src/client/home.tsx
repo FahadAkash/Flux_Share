@@ -12,7 +12,7 @@ const t = getT();
 
 const root = document.querySelector("main.container");
 if (root && document.getElementById("homeView")) {
-  render(<HomeApp />, root);
+  render(<HomeApp />, root as HTMLElement);
 }
 
 function HomeApp() {
@@ -135,6 +135,7 @@ async function apiCreateRoom(body: { maxConcurrent: number; creatorCid: string }
   if (!res.ok) throw new Error(t.error.roomCreationFailed);
   return res.json();
 }
+
 
 function b64urlEncode(u8: Uint8Array) {
   let s = "";

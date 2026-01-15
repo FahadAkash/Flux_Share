@@ -23,7 +23,8 @@
     "join": "参加",
     "encryptHint": "暗号化ONならリンクに鍵が含まれます。",
     "footer": "P2Pのみ。ネットワーク条件によっては接続不可",
-    "madeBy": "Made by Fahad Akash"
+    "madeBy": "Made by Fahad Akash",
+    "useAlt": "代替サーバーを使用する (Pairlane)"
   },
   "room": {
     "eyebrow": "ROOM—SESSION",
