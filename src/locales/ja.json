@@ -47,6 +47,8 @@
     "sendHintReady": "送信できます",
     "waiting": "送信側がファイルを選ぶのを待っています...",
     "download": "ダウンロード",
+    "view": "見る",
+    "remove": "削除",
     "scanToJoin": "スキャンして参加"
   },
   "guide": {

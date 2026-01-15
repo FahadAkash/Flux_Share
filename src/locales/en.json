@@ -47,6 +47,8 @@
     "sendHintReady": "Ready to send",
     "waiting": "Waiting for sender to select a file...",
     "download": "Download",
+    "view": "View",
+    "remove": "Remove",
     "scanToJoin": "Scan to join room"
   },
   "guide": {

@@ -326,6 +326,25 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     resetPeerSends();
   }, [resetPeerSends]);
 
+  const handleViewLocalFile = useCallback((file: File) => {
+    const url = URL.createObjectURL(file);
+    window.open(url, "_blank");
+    // Optionally revoke after some time or on unmount
+  }, []);
+
+  const handleRemoveFile = useCallback((index: number) => {
+    setSelectedFiles(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) {
+        setCurrentFileIndex(-1);
+        setSendProgress({ sent: 0, total: 0 });
+        sendIntentRef.current = false;
+        resetPeerSends();
+      }
+      return next;
+    });
+  }, [resetPeerSends]);
+
   useEffect(() => {
     const boot = async () => {
       setStatus(t.status.connecting);
@@ -393,16 +412,19 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         peer.dc = dc;
         wireOffererDataChannel(peer, dc);
 
-        offererPeersRef.current.set(peerId, peer);
+        const currentMap = offererPeersRef.current;
+        if (currentMap) currentMap.set(peerId, peer);
         return peer;
       };
 
       const closeOffererPeer = (peerId: string) => {
-        const peer = offererPeersRef.current.get(peerId);
+        const currentMap = offererPeersRef.current;
+        if (!currentMap) return;
+        const peer = currentMap.get(peerId);
         if (!peer) return;
         peer.dc?.close();
         peer.pc.close();
-        offererPeersRef.current!.delete(peerId);
+        currentMap.delete(peerId);
       };
 
       const flushOffererCandidates = async (peer: OffererPeer) => {
@@ -584,7 +606,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
 
         if (msg.type === "start") {
           if (roleRef.current === "offerer" && msg.peerId) {
-            if (offererPeersRef.current.has(msg.peerId)) {
+            const peersMap = offererPeersRef.current;
+            if (peersMap && peersMap.has(msg.peerId)) {
               closeOffererPeer(msg.peerId);
             }
             const peer = createOffererPeer(msg.peerId);
@@ -627,7 +650,9 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
 
         if (msg.type === "answer") {
           if (roleRef.current !== "offerer") return;
-          const peer = offererPeersRef.current.get(msg.from);
+          const peersMap = offererPeersRef.current;
+          if (!peersMap) return;
+          const peer = peersMap.get(msg.from);
           if (!peer) return;
           if (peer.activeSid == null || msg.sid !== peer.activeSid) return;
 
@@ -658,7 +683,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
             if (!pc) return;
 
             if (!receiverRemoteDescSetRef.current) {
-              receiverPendingCandidatesRef.current.push({ sid: msg.sid, candidate: msg.candidate });
+              const pending = receiverPendingCandidatesRef.current;
+              if (pending) pending.push({ sid: msg.sid, candidate: msg.candidate });
             } else {
               await pc.addIceCandidate(msg.candidate);
             }
@@ -768,9 +794,13 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         currentStep = 3;
         state = { step: 3, main: t.guide.senderSending, sub: t.guide.senderSendingSub, waiting: false, complete: false };
       } else if (peers > 1 && selectedFiles.length > 0) {
-        // File selected and peer connected - ready to send
-        currentStep = 3;
-        state = { step: 3, main: t.guide.senderReadyToSend, sub: t.guide.senderReadyToSendSub, waiting: false, complete: false };
+        // Peer connected and file selected - ready to send
+        currentStep = 2;
+        state = { step: 2, main: t.guide.senderReadyToSend, sub: t.guide.senderReadyToSendSub, waiting: false, complete: false };
+      } else if (selectedFiles.length > 0) {
+        // File selected but waiting for peer
+        currentStep = 1;
+        state = { step: 1, main: t.guide.senderWaitPeer, sub: t.guide.senderWaitPeerSub, waiting: true, complete: false };
       } else if (peers > 1) {
         // Peer connected but no file yet
         currentStep = 2;
@@ -787,7 +817,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         maxStepRef.current = currentStep;
       }
       // But always show current state's content (for file selection feedback)
-      return { ...state, step: Math.max(state.step, maxStepRef.current) };
+      return { ...state, step: Math.max(state.step, maxStepRef.current || 1) };
     }
 
     if (role === "answerer") {
@@ -881,24 +911,36 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
                 <div class="fileList">
                   {selectedFiles.map((f, i) => (
                     <div key={i} class={`fileItem${i === currentFileIndex ? " active" : ""}${i < currentFileIndex ? " done" : ""}`}>
-                      <span class="name">{f.name}</span>
-                      <span class="size">{formatBytes(f.size)}</span>
+                      <div class="fileInfo">
+                        <span class="name">{f.name}</span>
+                        <span class="size">{formatBytes(f.size)}</span>
+                      </div>
+                      <div class="fileActions">
+                        <button class="btn small" onClick={() => handleViewLocalFile(f)} title={t.room.view}>
+                          {t.room.view}
+                        </button>
+                        <button class="btn small" onClick={() => handleRemoveFile(i)} title={t.room.remove}>
+                          {t.room.remove}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div class="row gap wrap">
-                <button id="sendBtn" class="btn primary" disabled={!canSend} onClick={handleSend} title={sendHint}>
-                  {t.room.send}
-                </button>
-                {selectedFiles.length > 0 && (
-                  <button class="btn" onClick={handleClear}>
-                    Clear
-                  </button>
-                )}
-                <div class="muted small" id="fileInfo">{selectedFilesLabel || sendHint}</div>
-              </div>
+               <div class="row gap wrap items-center mt-row">
+                 <div class="row gap">
+                   <button id="sendBtn" class="btn primary" disabled={!canSend} onClick={handleSend} title={sendHint}>
+                     {t.room.send}
+                   </button>
+                   {selectedFiles.length > 0 && (
+                     <button class="btn" onClick={handleClear}>
+                       Clear
+                     </button>
+                   )}
+                 </div>
+                 <div class="muted small" id="fileInfo">{selectedFilesLabel || sendHint}</div>
+               </div>
 
               {showSendProgress && (
                 <div class="progress">
@@ -1034,14 +1076,14 @@ function getClientId() {
   return id;
 }
 
-async function toArrayBuffer(data: BufferLike) {
+async function toArrayBuffer(data: BufferLike): Promise<ArrayBuffer> {
   if (data instanceof ArrayBuffer) return data;
-  return data.arrayBuffer();
+  return await data.arrayBuffer();
 }
 
 /** ---------- crypto (optional E2E) ---------- */
 async function importAesKey(raw: Uint8Array) {
-  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, [
+  return crypto.subtle.importKey("raw", raw as any, { name: "AES-GCM" }, false, [
     "encrypt",
     "decrypt",
   ]);
@@ -1050,7 +1092,7 @@ async function importAesKey(raw: Uint8Array) {
 async function encryptChunk(plainAb: ArrayBuffer, key: RoomCryptoKey) {
   if (!key) return plainAb;
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainAb);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as any }, key, plainAb);
   const out = new Uint8Array(12 + ct.byteLength);
   out.set(iv, 0);
   out.set(new Uint8Array(ct) as any, 12);
@@ -1062,7 +1104,7 @@ async function decryptChunk(frameAb: ArrayBuffer, key: RoomCryptoKey) {
   const u8 = new Uint8Array(frameAb);
   const iv = u8.slice(0, 12);
   const ct = u8.slice(12);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as any }, key, ct as any);
   return pt;
 }
 

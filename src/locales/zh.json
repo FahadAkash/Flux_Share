@@ -47,6 +47,8 @@
     "sendHintReady": "可以发送",
     "waiting": "等待发送方选择文件...",
     "download": "下载",
+    "view": "预览",
+    "remove": "移除",
     "scanToJoin": "扫码加入房间"
   },
   "guide": {
