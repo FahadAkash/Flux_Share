@@ -470,6 +470,12 @@ h1 {
   width: 0%;
 }
 
+.progress .small {
+  margin-top: 0.75rem;
+  font-weight: 700;
+  display: block;
+}
+
 /* Step Guide */
 .stepGuide {
   border: var(--border-width) solid var(--black);
