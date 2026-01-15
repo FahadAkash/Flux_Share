@@ -143,11 +143,16 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   }, [peers]);
 
   useEffect(() => {
-    selectedFilesRef.current = selectedFiles;
+    if (selectedFiles) {
+      selectedFilesRef.current = selectedFiles;
+    }
   }, [selectedFiles]);
 
   const resetPeerSends = useCallback(() => {
-    for (const peer of offererPeersRef.current.values()) {
+    if (!offererPeersRef.current) return;
+    const peers = offererPeersRef.current;
+    if (!peers) return;
+    for (const peer of peers.values()) {
       peer.sent = false;
       peer.sending = false;
     }
@@ -187,11 +192,11 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   const handleDrop = useCallback((ev: DragEvent) => {
     ev.preventDefault();
     setDropHover(false);
-    const files = Array.from(ev.dataTransfer?.files || []);
-    if (files.length > 0) {
+    const incoming = Array.from(ev.dataTransfer?.files || []);
+    if (incoming.length > 0) {
       sendIntentRef.current = false;
       resetPeerSends();
-      setSelectedFiles(files);
+      setSelectedFiles(prev => [...prev, ...incoming]);
       setDownloads([]);
       setCurrentFileIndex(-1);
     }
@@ -199,11 +204,11 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
 
   const handleFileInput = useCallback((ev: Event) => {
     const input = ev.currentTarget as HTMLInputElement;
-    const files = Array.from(input.files || []);
-    if (files.length > 0) {
+    const incoming = Array.from(input.files || []);
+    if (incoming.length > 0) {
       sendIntentRef.current = false;
       resetPeerSends();
-      setSelectedFiles(files);
+      setSelectedFiles(prev => [...prev, ...incoming]);
       setDownloads([]);
       setCurrentFileIndex(-1);
     }
@@ -214,7 +219,9 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     if (!meta) return;
     setStatus(t.status.generatingFile);
 
-    const blob = new Blob(recvChunksRef.current, { type: meta.mime });
+    const chunks = recvChunksRef.current;
+    if (!chunks || chunks.length === 0) return;
+    const blob = new Blob(chunks as any[], { type: meta.mime });
     const url = URL.createObjectURL(blob);
 
     setDownloads(prev => [...prev, { url, name: meta.name, size: meta.size }]);
@@ -263,7 +270,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         const slice = file.slice(offset, offset + chunkSize);
         const buf = await slice.arrayBuffer();
         let payload: ArrayBuffer = buf;
-        if (encrypted) payload = await encryptChunk(buf, cryptoKeyRef.current);
+        if (encrypted) payload = await encryptChunk(buf, cryptoKeyRef.current!);
         
         dc.send(payload);
         offset += buf.byteLength;
@@ -288,27 +295,36 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
     if (!sendIntentRef.current) return;
     if (peer.sending || peer.sent) return;
     const files = selectedFilesRef.current;
-    if (files.length === 0) return;
+    if (!files || files.length === 0) return;
     const dc = peer.dc;
     if (!dc || dc.readyState !== "open") return;
 
     log("[send] triggered:", reason, "peer:", peer.peerId, "batch size:", files.length);
     peer.sending = true;
-    await sendFilesToPeer(peer, files);
+    await sendFilesToPeer(peer, files!);
     peer.sending = false;
   }, [sendFilesToPeer]);
 
   const trySendAll = useCallback((reason: string) => {
-    for (const peer of offererPeersRef.current.values()) {
+    if (!offererPeersRef.current) return;
+    const peersMap = offererPeersRef.current;
+    if (!peersMap) return;
+    for (const peer of peersMap.values()) {
       void trySendPeer(peer, reason);
     }
   }, [trySendPeer]);
 
   const handleSend = useCallback(async () => {
-    if (selectedFiles.length === 0) return;
-    sendIntentRef.current = true;
     trySendAll("manual");
   }, [selectedFiles, trySendAll]);
+
+  const handleClear = useCallback(() => {
+    setSelectedFiles([]);
+    setCurrentFileIndex(-1);
+    setSendProgress({ sent: 0, total: 0 });
+    sendIntentRef.current = false;
+    resetPeerSends();
+  }, [resetPeerSends]);
 
   useEffect(() => {
     const boot = async () => {
@@ -336,7 +352,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       };
 
       const createOffererPeer = (peerId: string) => {
-        const existing = offererPeersRef.current.get(peerId);
+        const existing = offererPeersRef.current!.get(peerId);
         if (existing) return existing;
 
         const pc = new RTCPeerConnection({
@@ -386,7 +402,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         if (!peer) return;
         peer.dc?.close();
         peer.pc.close();
-        offererPeersRef.current.delete(peerId);
+        offererPeersRef.current!.delete(peerId);
       };
 
       const flushOffererCandidates = async (peer: OffererPeer) => {
@@ -473,7 +489,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
           if (incomingMetaRef.current.encrypted) {
             plain = await decryptChunk(ab, cryptoKeyRef.current);
           }
-          recvChunksRef.current.push(new Uint8Array(plain));
+          const chunks = recvChunksRef.current!;
+          chunks.push(new Uint8Array(plain));
           const chunkLen = plain.byteLength;
           setRecvProgress(prev => ({ got: prev.got + chunkLen, total: prev.total }));
         };
@@ -516,11 +533,11 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       };
 
       const flushReceiverCandidates = async () => {
-        const pc = receiverPcRef.current;
-        const sid = receiverActiveSidRef.current;
+        const pc = receiverPcRef.current!;
+        const sid = receiverActiveSidRef.current!;
         if (!pc || sid == null) return;
 
-        const pending = receiverPendingCandidatesRef.current;
+        const pending = receiverPendingCandidatesRef.current!;
         let i = 0;
         while (i < pending.length) {
           const item = pending[i];
@@ -622,6 +639,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
 
         if (msg.type === "candidate") {
           if (roleRef.current === "offerer") {
+            if (!offererPeersRef.current) return;
             const peer = offererPeersRef.current.get(msg.from);
             if (!peer) return;
             if (peer.activeSid == null || msg.sid !== peer.activeSid) return;
@@ -661,7 +679,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       receiverDcRef.current?.close();
       receiverPcRef.current?.close();
       if (offererPeersRef.current) {
-        for (const peer of offererPeersRef.current.values()) {
+        for (const peer of offererPeersRef.current!.values()) {
           peer.dc?.close();
           peer.pc.close();
         }
@@ -764,7 +782,8 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
       }
 
       // Never go back in step number
-      if (currentStep > maxStepRef.current) {
+      const maxVal = maxStepRef.current || 1;
+      if (currentStep > maxVal) {
         maxStepRef.current = currentStep;
       }
       // But always show current state's content (for file selection feedback)
@@ -780,10 +799,12 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         currentStep = 3;
       }
       // Never go back
-      if (currentStep > (maxStepRef.current ?? 1)) {
+      const maxStepValue = maxStepRef.current! || 1;
+      if (currentStep > maxStepValue) {
         maxStepRef.current = currentStep;
       }
-      return receiverSteps[maxStepRef.current ?? 2];
+      const finalStep = maxStepRef.current! || currentStep;
+      return receiverSteps[finalStep as keyof typeof receiverSteps] || receiverSteps[2];
     }
 
     // Initial connecting state (before role is assigned)
@@ -813,13 +834,13 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         <div class="roomGrid">
           <div class="roomSide">
             <div class="kv">
-              <div class="kv-item">
+              <div class="field">
                 <span class="kv-label">{t.room.roleLabel}</span>
-                <span class="kv-value" id="roleLabel">{roleLabel}</span>
+                <span id="roleLabel" class="kv-value">{roleLabel}</span>
               </div>
-              <div class="kv-item">
+              <div class="field">
                 <span class="kv-label">{t.room.peersLabel}</span>
-                <span class="kv-value" id="peersLabel">{peersLabel}</span>
+                <span id="peersLabel" class="kv-value">{peersLabel}</span>
               </div>
             </div>
             <div class="sideCard muted small" style={{ marginTop: '2rem' }}>{t.room.encryptHint}</div>
@@ -871,6 +892,11 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
                 <button id="sendBtn" class="btn primary" disabled={!canSend} onClick={handleSend} title={sendHint}>
                   {t.room.send}
                 </button>
+                {selectedFiles.length > 0 && (
+                  <button class="btn" onClick={handleClear}>
+                    Clear
+                  </button>
+                )}
                 <div class="muted small" id="fileInfo">{selectedFilesLabel || sendHint}</div>
               </div>
 
@@ -1027,8 +1053,8 @@ async function encryptChunk(plainAb: ArrayBuffer, key: RoomCryptoKey) {
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainAb);
   const out = new Uint8Array(12 + ct.byteLength);
   out.set(iv, 0);
-  out.set(new Uint8Array(ct), 12);
-  return out.buffer;
+  out.set(new Uint8Array(ct) as any, 12);
+  return out.buffer as any;
 }
 
 async function decryptChunk(frameAb: ArrayBuffer, key: RoomCryptoKey) {

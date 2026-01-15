@@ -245,6 +245,12 @@ h1 {
   box-shadow: 9px 9px 0px var(--black);
 }
 
+.btn.small {
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  min-width: auto;
+}
+
 .btn:active {
   transform: translate(3px, 3px);
   box-shadow: 3px 3px 0px var(--black);
@@ -329,20 +335,30 @@ h1 {
 .kv {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2rem;
+  padding: 1rem 0;
+}
+
+.kv .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .kv-label {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 900;
   text-transform: uppercase;
   color: var(--gray);
+  letter-spacing: 0.5px;
 }
 
 .kv-value {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   font-weight: 700;
+  color: var(--black);
   word-break: break-all;
+  font-family: "Azeret Mono", monospace;
 }
 
 #fileInfo, #downloadMeta {
