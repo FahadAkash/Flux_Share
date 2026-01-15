@@ -292,12 +292,28 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   }, []);
 
   const trySendPeer = useCallback(async (peer: OffererPeer, reason: string) => {
-    if (!sendIntentRef.current) return;
-    if (peer.sending || peer.sent) return;
+    if (!sendIntentRef.current) {
+      log("[send] skip peer:", peer.peerId, "no send intent yet (reason:", reason, ")");
+      return;
+    }
+    if (peer.sending) {
+      log("[send] skip peer:", peer.peerId, "already sending");
+      return;
+    }
+    if (peer.sent) {
+      log("[send] skip peer:", peer.peerId, "already sent this batch");
+      return;
+    }
     const files = selectedFilesRef.current;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0) {
+      log("[send] skip peer:", peer.peerId, "no files selected");
+      return;
+    }
     const dc = peer.dc;
-    if (!dc || dc.readyState !== "open") return;
+    if (!dc || dc.readyState !== "open") {
+      log("[send] skip peer:", peer.peerId, "datachannel not open");
+      return;
+    }
 
     log("[send] triggered:", reason, "peer:", peer.peerId, "batch size:", files.length);
     peer.sending = true;
@@ -315,8 +331,10 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
   }, [trySendPeer]);
 
   const handleSend = useCallback(async () => {
+    log("[send] handleSend clicked");
+    sendIntentRef.current = true;
     trySendAll("manual");
-  }, [selectedFiles, trySendAll]);
+  }, [trySendAll]);
 
   const handleClear = useCallback(() => {
     setSelectedFiles([]);
@@ -375,7 +393,23 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         if (existing) return existing;
 
         const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+          iceServers: [
+            { urls: "stun:stun.cloudflare.com:3478" },
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:openrelay.metered.ca:80" },
+            {
+              urls: [
+                "turn:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:443",
+                "turn:openrelay.metered.ca:443?transport=tcp",
+                "turns:openrelay.metered.ca:443",
+              ],
+              username: "openrelayproject",
+              credential: "openrelayproject",
+            },
+          ],
+          iceCandidatePoolSize: 10,
+          bundlePolicy: "max-bundle",
         });
 
         const peer: OffererPeer = {
@@ -404,8 +438,20 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
           });
         };
 
+        pc.oniceconnectionstatechange = () => {
+          log("[rtc] iceState:", pc.iceConnectionState, "(peer:", peer.peerId + ")");
+          if (pc.iceConnectionState === "failed") {
+            log("[rtc] ice connection failed, retrying offer...");
+            void sendOffer(peer);
+          }
+        };
+
         pc.onconnectionstatechange = () => {
-          log("[rtc] connectionState:", pc.connectionState, "(peer:", peer.peerId + ")");
+          const s = pc.connectionState;
+          log("[rtc] connectionState:", s, "(peer:", peer.peerId + ")");
+          if (s === "connected") setStatus(t.status.dataChannelReady);
+          if (s === "failed") setStatus(t.status.dataChannelError);
+          if (s === "disconnected") setStatus(t.status.disconnected);
         };
 
         const dc = pc.createDataChannel("file", { ordered: true });
@@ -522,7 +568,23 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
         if (receiverPcRef.current) return receiverPcRef.current;
 
         const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+          iceServers: [
+            { urls: "stun:stun.cloudflare.com:3478" },
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:openrelay.metered.ca:80" },
+            {
+              urls: [
+                "turn:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:443",
+                "turn:openrelay.metered.ca:443?transport=tcp",
+                "turns:openrelay.metered.ca:443",
+              ],
+              username: "openrelayproject",
+              credential: "openrelayproject",
+            },
+          ],
+          iceCandidatePoolSize: 10,
+          bundlePolicy: "max-bundle",
         });
         receiverPcRef.current = pc;
         receiverPeerIdRef.current = peerId;
@@ -542,8 +604,16 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
           });
         };
 
+        pc.oniceconnectionstatechange = () => {
+          log("[rtc] iceState:", pc.iceConnectionState, "(receiver)");
+        };
+
         pc.onconnectionstatechange = () => {
-          log("[rtc] connectionState:", pc.connectionState, "(receiver)");
+          const s = pc.connectionState;
+          log("[rtc] connectionState:", s, "(receiver)");
+          if (s === "connected") setStatus(t.status.dataChannelReady);
+          if (s === "failed") setStatus(t.status.dataChannelError);
+          if (s === "disconnected") setStatus(t.status.disconnected);
         };
 
         pc.ondatachannel = (ev) => {
@@ -978,7 +1048,7 @@ function RoomApp({ roomId, maxConcurrent }: RoomAppProps) {
                 <div class="fileList">
                   {downloads.map((d, i) => (
                     <div key={i} class="fileItem done">
-                      <div class="info">
+                      <div class="fileInfo">
                         <span class="name">{d.name}</span>
                         <span class="size">{formatBytes(d.size)}</span>
                       </div>
@@ -1109,10 +1179,15 @@ async function decryptChunk(frameAb: ArrayBuffer, key: RoomCryptoKey) {
 }
 
 function b64urlDecode(s: string) {
-  const pad = "=".repeat((4 - (s.length % 4)) % 4);
-  const b64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+  try {
+    const pad = "=".repeat((4 - (s.length % 4)) % 4);
+    const b64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch (e) {
+    log("[crypto] Decode error:", e);
+    return new Uint8Array(0);
+  }
 }
