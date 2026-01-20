@@ -1,5 +1,7 @@
 # FluxShare
 
+![FluxShare Header](public/image.png)
+
 FluxShare is a secure, serverless peer-to-peer (P2P) file sharing application built on Cloudflare Workers and WebRTC. It allows you to transfer files of any size directly between devices without storing them on a server.
 
 **Live Demo:** [fluxshare.fahadakas-batterylowinteractive.workers.dev](https://fluxshare.fahadakas-batterylowinteractive.workers.dev)
