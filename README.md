@@ -1,49 +1,60 @@
 # FluxShare
 
-![FluxShare Header](public/image.png)
+<div align="center">
+  <img src="public/image.png" alt="FluxShare Header" width="100%" />
 
-FluxShare is a secure, serverless peer-to-peer (P2P) file sharing application built on Cloudflare Workers and WebRTC. It allows you to transfer files of any size directly between devices without storing them on a server.
+  <br />
+  <br />
 
-**Live Demo:** [fluxshare.fahadakas-batterylowinteractive.workers.dev](https://fluxshare.fahadakas-batterylowinteractive.workers.dev)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+  [![Hono](https://img.shields.io/badge/Hono-E36002?logo=hono&logoColor=white)](https://hono.dev/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-## Features
+  <p>
+    <b>A secure, serverless peer-to-peer file sharing application.</b>
+    <br />
+    Transfer files of any size directly between devices. No servers. No limits.
+  </p>
 
-- **P2P Transfer**: Direct browser-to-browser data transfer via WebRTC.
-- **End-to-End Encryption**: Files are encrypted using AES-GCM. The key is part of the URL fragment and never sent to the server.
-- **Serverless Architecture**: Powered by Cloudflare Workers and Durable Objects for signaling.
-- **No File Size Limits**: Since files stream directly between peers, there are no server-imposed size limits.
-- **Cross-Platform**: Works on any device with a modern web browser.
-- **QR Code Sharing**: Easily join rooms by scanning a QR code.
-- **Local Network Optimization**: Prioritizes local connections when possible.
+  <a href="https://fluxshare.fahadakas-batterylowinteractive.workers.dev"><strong>View Live Demo »</strong></a>
+</div>
 
-## How It Works
+<br />
 
-1.  **Create a Room**: Open FluxShare to generate a unique, secure room.
-2.  **Share**: Send the Room Link or show the QR code to the receiver.
-3.  **Connect**: Once the receiver joins, a secure P2P connection is established.
-4.  **Transfer**: Drag and drop files to send them instantly.
+## ✨ Features
 
-## Architecture
+- 🔒 **End-to-End Encryption**: Files are encrypted using AES-GCM. The key is in the URL and never sent to the server.
+- ⚡ **P2P Transfer**: Direct browser-to-browser data transfer via WebRTC for maximum speed.
+- ☁️ **Serverless Architecture**: Powered by Cloudflare Workers and Durable Objects.
+- 🚀 **No File Size Limits**: Stream files directly between peers without server storage limits.
+- 📱 **Cross-Platform**: Works on any modern web browser (Desktop & Mobile).
+- 🔗 **Easy Sharing**: Share via link or scan a QR code to join instantly.
+- 🏠 **Local Optimization**: Automatically optimizes for local network connections when possible.
 
-FluxShare utilizes a modern, edge-first stack:
+## 🛠️ Architecture
 
-*   **Signaling Server**: Hosted on Cloudflare Workers using [Hono](https://hono.dev/).
-*   **State Management**: [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/) manage room state and WebSocket connections for signaling.
-*   **Frontend**: Built with [React](https://react.dev/) and [Vite](https://vitejs.dev/) for fast, SSR-enabled delivery.
-*   **P2P Layer**: [WebRTC](https://webrtc.org/) DataChannels for file transmission.
+FluxShare utilizes a modern, edge-first stack designed for performance and privacy:
 
-## Development
+- **Signaling Server**: Hosted on **Cloudflare Workers** using [Hono](https://hono.dev/) for high-performance edge routing.
+- **State Management**: **Cloudflare Durable Objects** handle room state and WebSocket connections for signaling.
+- **Frontend**: Built with **Hono JSX** and **Vite** for fast SSR and lightweight client-side hydration.
+- **P2P Layer**: **WebRTC** DataChannels for direct, secure file transmission.
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-*   [Node.js](https://nodejs.org/) (v18+ recommended)
-*   [npm](https://www.npmjs.com/)
+- [Node.js](https://nodejs.org/) (v18+ recommended)
+- [npm](https://www.npmjs.com/)
 
 ### Installation
 
 Clone the repository and install dependencies:
 
 ```bash
+git clone https://github.com/FahadAkash/Flux_Share.git
+cd Flux_Share
 npm install
 ```
 
@@ -68,10 +79,12 @@ To deploy to your own Cloudflare account:
 npm run deploy
 ```
 
-## Configuration
+> **Note**: The project uses `wrangler.jsonc` for configuration. Update the `name` or `account_id` fields if needed.
 
-The project uses a `wrangler.jsonc` file for Cloudflare configuration. You may need to update the `name` or `account_id` fields if deploying to a different environment.
+## 🤝 Contributing
 
-## License
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-MIT
+## 📄 License
+
+This project is licensed under the MIT License.
